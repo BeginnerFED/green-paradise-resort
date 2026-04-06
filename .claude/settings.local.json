@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx shadcn@latest init -d)",
+      "Bash(npx shadcn@latest add card dialog input label select table badge calendar tabs sheet separator dropdown-menu popover textarea toast -y)",
+      "Bash(npx shadcn@latest add card dialog input label select table badge calendar tabs sheet separator dropdown-menu popover textarea sonner -y)",
+      "Bash(npx next:*)",
+      "Bash(git config:*)"
+    ]
+  }
+}
