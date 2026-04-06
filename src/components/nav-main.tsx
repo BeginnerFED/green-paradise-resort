@@ -23,7 +23,6 @@ export function NavMain({
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Yönetim</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => {
           const isActive = pathname.startsWith(item.url);
