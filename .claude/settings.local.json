@@ -5,7 +5,22 @@
       "Bash(npx shadcn@latest add card dialog input label select table badge calendar tabs sheet separator dropdown-menu popover textarea toast -y)",
       "Bash(npx shadcn@latest add card dialog input label select table badge calendar tabs sheet separator dropdown-menu popover textarea sonner -y)",
       "Bash(npx next:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Read(//c/Users/HP/.claude/**)",
+      "Read(//c/Users/HP/**)",
+      "Bash(ls ~/.claude/mcpServers*)",
+      "Bash(npx -y @anthropic-ai/claude-code@latest mcp list)",
+      "Bash(npx -y @anthropic-ai/claude-code@latest mcp add supabase -- npx -y @supabase/mcp-server-supabase@latest --access-token sbp_e5e74ffceb18bd8fe4f3b9d1db4f0bdfe70bdf84 --project-ref ozuouxbzoohxvptdovds)",
+      "Bash(npx -y @anthropic-ai/claude-code@latest mcp remove supabase)",
+      "Bash(npx -y @anthropic-ai/claude-code@latest mcp add supabase -- npx -y @supabase/mcp-server-supabase@latest --access-token sbp_5f3f735cef7c4ff24265db38a1c5ec482008438c --project-ref ozuouxbzoohxvptdovds)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('mcpServers',{}\\), indent=2\\)\\)\")",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\);const j=JSON.parse\\(d\\);console.log\\(JSON.stringify\\(j.mcpServers||{},null,2\\)\\)\")",
+      "Bash(npx shadcn@latest add login-01 -y)",
+      "Bash(mv calendar:*)",
+      "Bash(mv reservations:*)",
+      "Bash(mv guests:*)",
+      "Bash(npx shadcn@latest add sidebar-07 -y)",
+      "mcp__supabase__execute_sql"
     ]
   }
 }
