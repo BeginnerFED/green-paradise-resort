@@ -15,7 +15,6 @@ import { tr } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getBungalows, getReservationsByMonth, calculateBalance } from "@/lib/queries";
@@ -84,18 +83,19 @@ export default function CalendarPage() {
     setLoading(true);
     try {
       const [b, r] = await Promise.all([
-        getBungalows(),
+        bungalows.length === 0 ? getBungalows() : Promise.resolve(bungalows),
         getReservationsByMonth(
           currentMonth.getFullYear(),
           currentMonth.getMonth() + 1
         ),
       ]);
-      setBungalows(b);
+      if (bungalows.length === 0) setBungalows(b);
       setReservations(r as ReservationWithRelations[]);
     } catch (err) {
       console.error("Veri yüklenirken hata:", err);
     }
     setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth]);
 
   useEffect(() => {
@@ -173,7 +173,7 @@ export default function CalendarPage() {
     <div className="space-y-8">
       {/* Calendar */}
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="px-6 pt-6 pb-2">
           {/* Month Navigation */}
           <div className="flex items-center justify-between mb-6">
             <Button
@@ -207,11 +207,17 @@ export default function CalendarPage() {
           </div>
 
           {/* Gantt Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
+          <div className="overflow-x-auto -mx-6 md:mx-0">
+            <table className="text-sm border-collapse w-max md:w-full md:table-fixed">
+              <colgroup className="hidden md:table-column-group">
+                <col className="w-[100px]" />
+                {days.map((day) => (
+                  <col key={day.toISOString()} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
-                  <th className="text-left p-2 font-medium text-muted-foreground min-w-[120px] sticky left-0 bg-card z-10 border-b">
+                  <th className="text-left p-1.5 font-medium text-muted-foreground min-w-[90px] md:min-w-0 sticky left-0 bg-card z-10 border-b">
                     Bungalov
                   </th>
                   {days.map((day) => {
@@ -221,7 +227,7 @@ export default function CalendarPage() {
                       <th
                         key={dateStr}
                         className={cn(
-                          "p-1 text-center font-normal min-w-[40px] border-b",
+                          "p-0.5 text-center font-normal border-b min-w-[32px] md:min-w-0",
                           isTodayDate && "bg-foreground/5"
                         )}
                       >
@@ -243,7 +249,7 @@ export default function CalendarPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading
+                {loading && bungalows.length === 0
                   ? Array.from({ length: 9 }).map((_, i) => (
                       <tr key={i} className="border-b last:border-b-0">
                         <td className="p-2 sticky left-0 bg-card z-10">
@@ -258,7 +264,7 @@ export default function CalendarPage() {
                     ))
                   : bungalows.map((bungalow) => (
                       <tr key={bungalow.id} className="border-b last:border-b-0">
-                        <td className="p-2 font-medium sticky left-0 bg-card z-10">
+                        <td className="p-1.5 font-medium sticky left-0 bg-card z-10">
                           <div className="flex items-center gap-2">
                             <div
                               className={cn(
@@ -338,103 +344,89 @@ export default function CalendarPage() {
             </table>
           </div>
 
-          {/* Legend */}
-          <div className="flex flex-wrap items-center gap-4 mt-6 pt-4 border-t text-xs text-muted-foreground">
-            <span>Her renk farklı bir rezervasyonu temsil eder</span>
-            <span>·</span>
-            <span>Boş günlere tıklayarak yeni rezervasyon oluşturabilirsiniz</span>
-          </div>
         </CardContent>
       </Card>
 
       {/* Bungalow Status Cards */}
       <div>
         <h2 className="text-lg font-semibold mb-4">Bungalov Durumları</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {bungalows.map((bungalow) => {
             const { active, upcoming } = getBungalowStatus(bungalow);
             const isOccupied = !!active;
+            const dotColor = BUNGALOW_DOT_COLORS[bungalow.name];
+            const bal = active ? calculateBalance(active) : 0;
 
             return (
-              <Card
+              <div
                 key={bungalow.id}
+                onClick={() => { if (active) handleReservationClick(active); }}
                 className={cn(
-                  "border-l-4 cursor-pointer hover:shadow-md transition-shadow",
-                  isOccupied ? "border-l-destructive" : "border-l-emerald-500"
+                  "group rounded-2xl border bg-card p-4 transition-all duration-200",
+                  isOccupied
+                    ? "cursor-pointer hover:bg-muted/40 active:scale-[0.99]"
+                    : ""
                 )}
-                onClick={() => {
-                  if (active) handleReservationClick(active);
-                }}
               >
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={cn(
-                          "w-3 h-3 rounded-full",
-                          BUNGALOW_DOT_COLORS[bungalow.name]
-                        )}
-                      />
-                      <h3 className="font-semibold">{bungalow.name}</h3>
-                    </div>
-                    <Badge
-                      variant={isOccupied ? "destructive" : "secondary"}
-                      className={
-                        !isOccupied
-                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100"
-                          : ""
-                      }
-                    >
-                      {isOccupied ? "Dolu" : "Boş"}
-                    </Badge>
+                {/* Row 1: Name + Status */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={cn("w-2 h-2 rounded-full", dotColor)} />
+                    <span className="text-[13px] font-semibold">{bungalow.name}</span>
                   </div>
+                  <span className={cn(
+                    "text-[11px] font-medium px-2.5 py-0.5 rounded-full border",
+                    isOccupied
+                      ? "border-red-500 text-red-500 bg-red-50 dark:bg-red-950"
+                      : "border-emerald-500 text-emerald-500 bg-emerald-50 dark:bg-emerald-950"
+                  )}>
+                    {isOccupied ? "Dolu" : "Müsait"}
+                  </span>
+                </div>
 
-                  {isOccupied && active ? (
-                    <div className="text-sm space-y-1 text-muted-foreground">
-                      <p>
-                        Misafir:{" "}
-                        <span className="font-medium text-foreground">
-                          {active.guest?.full_name}
-                        </span>
-                      </p>
-                      <p>
-                        Çıkış:{" "}
-                        <span className="font-medium text-foreground">
-                          {format(new Date(active.check_out + "T00:00:00"), "d MMM yyyy", {
-                            locale: tr,
-                          })}
-                        </span>
-                      </p>
-                      <p>
-                        Bakiye:{" "}
-                        <span className="font-medium text-destructive">
-                          {calculateBalance(active).toLocaleString("tr-TR")}₺
-                        </span>
-                      </p>
-                    </div>
-                  ) : upcoming ? (
-                    <div className="text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <CalendarDays className="h-3.5 w-3.5" />
-                        <span>
-                          Sonraki:{" "}
-                          <span className="font-medium text-foreground">
-                            {format(new Date(upcoming.check_in + "T00:00:00"), "d MMM", {
-                              locale: tr,
-                            })}
-                          </span>
-                          {" — "}
-                          {upcoming.guest?.full_name}
+                {/* Row 2: Details */}
+                {isOccupied && active ? (
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-foreground/[0.06] dark:bg-foreground/10 flex items-center justify-center shrink-0">
+                        <span className="text-[11px] font-semibold text-foreground/70">
+                          {(active.guest?.full_name ?? "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
                         </span>
                       </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{active.guest?.full_name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {format(new Date(active.check_in + "T00:00:00"), "d MMM", { locale: tr })} – {format(new Date(active.check_out + "T00:00:00"), "d MMM", { locale: tr })}
+                        </p>
+                      </div>
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Yaklaşan rezervasyon yok
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
+                    <div className="text-right shrink-0 pl-3">
+                      <p className={cn(
+                        "text-sm font-semibold tabular-nums",
+                        bal > 0 ? "text-destructive" : "text-emerald-600"
+                      )}>
+                        {bal.toLocaleString("tr-TR")}₺
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">bakiye</p>
+                    </div>
+                  </div>
+                ) : upcoming ? (
+                  <div className="mt-3 flex items-center gap-2 text-[12px] text-muted-foreground">
+                    <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      <span className="text-foreground font-medium">
+                        {format(new Date(upcoming.check_in + "T00:00:00"), "d MMM", { locale: tr })}
+                      </span>
+                      {" · "}
+                      {upcoming.guest?.full_name}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-[12px] text-muted-foreground/60">
+                    Rezervasyon yok
+                  </p>
+                )}
+              </div>
             );
           })}
         </div>

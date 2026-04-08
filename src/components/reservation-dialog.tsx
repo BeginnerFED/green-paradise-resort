@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { format, addDays } from "date-fns";
 import { tr } from "date-fns/locale";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -142,11 +143,13 @@ export function ReservationDialog({
 
       if (resError) throw resError;
 
+      toast.success("Rezervasyon oluşturuldu");
       onOpenChange(false);
       onSuccess();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Bir hata oluştu";
       setError(message);
+      toast.error("Rezervasyon oluşturulamadı");
     }
     setLoading(false);
   };
