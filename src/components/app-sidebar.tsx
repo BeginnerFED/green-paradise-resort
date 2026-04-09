@@ -17,7 +17,7 @@ import {
   LayoutDashboard,
   CalendarDays,
   BedDouble,
-  Users,
+  TrendingUp,
   GalleryVerticalEndIcon,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -25,8 +25,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: <LayoutDashboard /> },
   { title: "Takvim", url: "/calendar", icon: <CalendarDays /> },
-  { title: "Rezervasyonlar", url: "/reservations", icon: <BedDouble /> },
-  { title: "Müşteriler", url: "/guests", icon: <Users /> },
+  { title: "Kayıtlar", url: "/reservations", icon: <BedDouble /> },
+  { title: "Finans", url: "/finance", icon: <TrendingUp /> },
 ];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {

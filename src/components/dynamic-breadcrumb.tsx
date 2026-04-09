@@ -13,8 +13,8 @@ import {
 const pageTitles: Record<string, string> = {
   dashboard: "Dashboard",
   calendar: "Takvim",
-  reservations: "Rezervasyonlar",
-  guests: "Müşteriler",
+  reservations: "Kayıtlar",
+  finance: "Finans",
 };
 
 export function DynamicBreadcrumb() {
