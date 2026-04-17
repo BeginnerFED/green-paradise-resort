@@ -23,6 +23,7 @@ export interface Reservation {
   check_out: string;
   status: "confirmed" | "checked_in" | "checked_out" | "cancelled";
   nightly_rate: number;
+  guest_count?: number;
   notes?: string;
   created_at: string;
   // joined

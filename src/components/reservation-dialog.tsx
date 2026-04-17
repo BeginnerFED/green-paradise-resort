@@ -13,6 +13,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, User, Phone, IdCard, Banknote, StickyNote, CalendarDays, Home } from "lucide-react";
 import { DatePicker } from "@/components/date-picker";
 import { supabase } from "@/lib/supabase";
@@ -58,6 +65,7 @@ export function ReservationDialog({
   const [checkInDate, setCheckInDate] = useState<Date | undefined>();
   const [checkOutDate, setCheckOutDate] = useState<Date | undefined>();
   const [nightlyRate, setNightlyRate] = useState("");
+  const [guestCount, setGuestCount] = useState("2");
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
@@ -70,6 +78,7 @@ export function ReservationDialog({
       setGuestName("");
       setGuestPhone("");
       setGuestTcNo("");
+      setGuestCount("2");
       setNotes("");
       setError("");
     }
@@ -137,6 +146,7 @@ export function ReservationDialog({
         check_in: checkIn,
         check_out: checkOut,
         nightly_rate: Number(nightlyRate),
+        guest_count: Number(guestCount) || 1,
         notes: notes || null,
         status: "confirmed",
       });
@@ -274,20 +284,37 @@ export function ReservationDialog({
 
             <Separator />
 
-            {/* Ücret & Not */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Ücret, Kişi & Not */}
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
                   <Banknote className="h-4 w-4" />
-                  Gecelik (₺)
+                  Gecelik
                 </div>
                 <Input
                   type="number"
                   value={nightlyRate}
                   onChange={(e) => setNightlyRate(e.target.value)}
                   min="0"
+                  placeholder="₺"
                   className="h-10"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                  <User className="h-4 w-4" />
+                  Kişi
+                </div>
+                <Select value={guestCount} onValueChange={(v) => v && setGuestCount(v)}>
+                  <SelectTrigger className="!h-10 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n} kişi</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">

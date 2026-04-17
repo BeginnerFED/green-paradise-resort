@@ -29,6 +29,7 @@ import {
   Pencil,
   Plus,
   Banknote,
+  Users,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -43,6 +44,7 @@ interface Reservation {
   check_in: string;
   check_out: string;
   nightly_rate: number;
+  guest_count?: number;
   status: string;
   notes?: string;
   guest: { id: string; full_name: string; phone: string; tc_no?: string } | null;
@@ -108,6 +110,7 @@ export function ReservationDetailDialog({ open, onOpenChange, reservation, onSuc
   const [editCheckIn, setEditCheckIn] = useState<Date | undefined>();
   const [editCheckOut, setEditCheckOut] = useState<Date | undefined>();
   const [editRate, setEditRate] = useState("");
+  const [editGuestCount, setEditGuestCount] = useState("2");
   const [editNotes, setEditNotes] = useState("");
 
   const fetchTransactions = async () => {
@@ -168,6 +171,7 @@ export function ReservationDetailDialog({ open, onOpenChange, reservation, onSuc
     setEditCheckIn(new Date(reservation.check_in + "T00:00:00"));
     setEditCheckOut(new Date(reservation.check_out + "T00:00:00"));
     setEditRate(reservation.nightly_rate.toString());
+    setEditGuestCount((reservation.guest_count ?? 2).toString());
     setEditNotes(reservation.notes ?? "");
     setEditing(true);
   };
@@ -176,7 +180,7 @@ export function ReservationDetailDialog({ open, onOpenChange, reservation, onSuc
     if (!editCheckIn || !editCheckOut || !editName || !editPhone) return;
     setLoading(true);
     await supabase.from("guests").update({ full_name: editName, phone: editPhone, tc_no: editTcNo || null }).eq("id", reservation.guest?.id);
-    await supabase.from("reservations").update({ check_in: format(editCheckIn, "yyyy-MM-dd"), check_out: format(editCheckOut, "yyyy-MM-dd"), nightly_rate: Number(editRate), notes: editNotes || null }).eq("id", reservation.id);
+    await supabase.from("reservations").update({ check_in: format(editCheckIn, "yyyy-MM-dd"), check_out: format(editCheckOut, "yyyy-MM-dd"), nightly_rate: Number(editRate), guest_count: Number(editGuestCount) || 1, notes: editNotes || null }).eq("id", reservation.id);
     toast.success("Rezervasyon güncellendi");
     setEditing(false); setLoading(false); close(false); onSuccess();
   };
@@ -224,31 +228,87 @@ export function ReservationDetailDialog({ open, onOpenChange, reservation, onSuc
 
     return (
       <Dialog open={open} onOpenChange={close}>
-        <DialogContent className="sm:max-w-[460px] p-0 gap-0 overflow-hidden">
+        <DialogContent className="sm:max-w-[520px] p-0 gap-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-4">
-            <DialogTitle className="text-lg">Düzenle</DialogTitle>
+            <DialogTitle className="text-lg">Rezervasyonu Düzenle</DialogTitle>
           </DialogHeader>
-          <div className="px-6 pb-6 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <span className="text-xs text-muted-foreground">Giriş</span>
-                <DatePicker value={editCheckIn} onChange={(d) => { setEditCheckIn(d); if (d && (!editCheckOut || editCheckOut <= d)) setEditCheckOut(addDays(d, 1)); }} placeholder="Giriş" />
+
+          <div className="px-6 pb-6 space-y-6">
+            {/* Tarihler */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <CalendarDays className="h-4 w-4" />
+                Tarih
               </div>
-              <div className="space-y-1.5">
-                <span className="text-xs text-muted-foreground">Çıkış</span>
-                <DatePicker value={editCheckOut} onChange={setEditCheckOut} placeholder="Çıkış" disabled={(d) => !!editCheckIn && d <= editCheckIn} />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">Giriş</span>
+                  <DatePicker value={editCheckIn} onChange={(d) => { setEditCheckIn(d); if (d && (!editCheckOut || editCheckOut <= d)) setEditCheckOut(addDays(d, 1)); }} placeholder="Giriş tarihi" />
+                </div>
+                <div className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">Çıkış</span>
+                  <DatePicker value={editCheckOut} onChange={setEditCheckOut} placeholder="Çıkış tarihi" disabled={(d) => !!editCheckIn && d <= editCheckIn} />
+                </div>
               </div>
+              {editNights > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {editNights} gece · {(editNights * Number(editRate || 0)).toLocaleString("tr-TR")}₺ toplam
+                </p>
+              )}
             </div>
-            {editNights > 0 && <p className="text-xs text-muted-foreground">{editNights} gece · {(editNights * Number(editRate || 0)).toLocaleString("tr-TR")}₺</p>}
+
             <Separator />
-            <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Ad Soyad *" className="h-10" />
-            <div className="grid grid-cols-2 gap-3">
-              <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="Telefon *" className="h-10" />
-              <Input value={editTcNo} onChange={(e) => setEditTcNo(e.target.value)} placeholder="TC No" className="h-10" />
+
+            {/* Misafir */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Users className="h-4 w-4" />
+                Misafir
+              </div>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Ad Soyad *" className="h-10" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="Telefon *" className="h-10 pl-9" />
+                </div>
+                <Input value={editTcNo} onChange={(e) => setEditTcNo(e.target.value)} placeholder="TC No" className="h-10" />
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Input type="number" value={editRate} onChange={(e) => setEditRate(e.target.value)} placeholder="Gecelik ₺" className="h-10" />
-              <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Not" className="h-10" />
+
+            <Separator />
+
+            {/* Ücret, Kişi, Not */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                  <Banknote className="h-4 w-4" />
+                  Gecelik
+                </div>
+                <Input type="number" value={editRate} onChange={(e) => setEditRate(e.target.value)} placeholder="₺" className="h-10" />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                  <Users className="h-4 w-4" />
+                  Kişi
+                </div>
+                <Select value={editGuestCount} onValueChange={(v) => v && setEditGuestCount(v)}>
+                  <SelectTrigger className="!h-10 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n} kişi</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                  <Pencil className="h-4 w-4" />
+                  Not
+                </div>
+                <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Opsiyonel" className="h-10" />
+              </div>
             </div>
           </div>
           <div className="flex justify-end gap-3 px-6 py-4 border-t bg-muted/30">
@@ -303,6 +363,9 @@ export function ReservationDetailDialog({ open, onOpenChange, reservation, onSuc
                 <span>
                   {format(new Date(reservation.check_in + "T00:00:00"), "d MMM", { locale: tr })} – {format(new Date(reservation.check_out + "T00:00:00"), "d MMM", { locale: tr })} · {nights}g
                 </span>
+                <span>·</span>
+                <Users className="h-3 w-3" />
+                <span>{reservation.guest_count ?? 2} kişi</span>
               </div>
             </div>
           </div>

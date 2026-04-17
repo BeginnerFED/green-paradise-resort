@@ -1,18 +1,31 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { format, subMonths, startOfMonth, endOfMonth, eachMonthOfInterval } from "date-fns";
+import { format, eachMonthOfInterval } from "date-fns";
 import { tr } from "date-fns/locale";
 import {
   TrendingUp,
   TrendingDown,
   Wallet,
-  Receipt,
   Plus,
   Trash2,
   Loader2,
   ChevronLeft,
   ChevronRight,
+  Users,
+  Zap,
+  Wrench,
+  Package,
+  Utensils,
+  MoreHorizontal,
+  Sparkles,
+  Receipt,
+  CalendarDays,
+  Tag,
+  PieChartIcon,
+  Calendar,
+  ArrowUpRight,
+  ArrowDownRight,
 } from "lucide-react";
 import {
   BarChart,
@@ -28,14 +41,6 @@ import {
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +48,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { DatePicker } from "@/components/date-picker";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -59,35 +65,99 @@ interface Expense {
 interface MonthlyData {
   month: string;
   label: string;
+  monthIndex: number;
   income: number;
   expense: number;
   profit: number;
+  reservationCount: number;
+  expenseCount: number;
 }
 
-const expenseCategoryLabels: Record<string, string> = {
-  staff: "Personel",
-  utilities: "Faturalar",
-  maintenance: "Bakım/Onarım",
-  supplies: "Malzeme",
-  food: "Gıda",
-  other: "Diğer",
-  general: "Genel",
+const categoryConfig: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string; hex: string }> = {
+  staff: { label: "Personel", icon: <Users className="h-3.5 w-3.5" />, color: "text-blue-500", bg: "bg-blue-500/10", hex: "#3b82f6" },
+  utilities: { label: "Faturalar", icon: <Zap className="h-3.5 w-3.5" />, color: "text-amber-500", bg: "bg-amber-500/10", hex: "#f59e0b" },
+  maintenance: { label: "Bakım/Onarım", icon: <Wrench className="h-3.5 w-3.5" />, color: "text-orange-500", bg: "bg-orange-500/10", hex: "#f97316" },
+  supplies: { label: "Malzeme", icon: <Package className="h-3.5 w-3.5" />, color: "text-violet-500", bg: "bg-violet-500/10", hex: "#8b5cf6" },
+  food: { label: "Gıda", icon: <Utensils className="h-3.5 w-3.5" />, color: "text-rose-500", bg: "bg-rose-500/10", hex: "#f43f5e" },
+  other: { label: "Diğer", icon: <MoreHorizontal className="h-3.5 w-3.5" />, color: "text-slate-500", bg: "bg-slate-500/10", hex: "#64748b" },
+  general: { label: "Genel", icon: <Sparkles className="h-3.5 w-3.5" />, color: "text-emerald-500", bg: "bg-emerald-500/10", hex: "#10b981" },
 };
 
-const PIE_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#6b7280"];
+interface TooltipPayloadItem {
+  name?: string;
+  value?: number;
+  color?: string;
+  dataKey?: string;
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  yearLabel,
+}: {
+  active?: boolean;
+  payload?: TooltipPayloadItem[];
+  label?: string;
+  yearLabel?: string | number;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div className="rounded-xl border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs">
+      {label && (
+        <p className="font-semibold mb-1.5 capitalize">
+          {label} {yearLabel ?? ""}
+        </p>
+      )}
+      <div className="space-y-1">
+        {payload.map((p, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: p.color }} />
+            <span className="text-muted-foreground">{p.name}:</span>
+            <span className="font-medium tabular-nums">
+              {Number(p.value ?? 0).toLocaleString("tr-TR")}₺
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PieTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: TooltipPayloadItem[];
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const item = payload[0];
+  return (
+    <div className="rounded-xl border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs">
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: item.color }} />
+        <span className="font-medium">{item.name}</span>
+        <span className="font-medium tabular-nums">
+          {Number(item.value ?? 0).toLocaleString("tr-TR")}₺
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export default function FinancePage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null); // 0-11, null = all year
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Expense dialog
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
   const [expDesc, setExpDesc] = useState("");
   const [expAmount, setExpAmount] = useState("");
   const [expCategory, setExpCategory] = useState("general");
-  const [expDate, setExpDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [expDate, setExpDate] = useState<Date | undefined>(new Date());
   const [expLoading, setExpLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -96,7 +166,6 @@ export default function FinancePage() {
     const yearStart = `${selectedYear}-01-01`;
     const yearEnd = `${selectedYear + 1}-01-01`;
 
-    // Rezervasyonlardan gelir
     const { data: reservations } = await supabase
       .from("reservations")
       .select("check_in, check_out, nightly_rate, status, charges(amount), payments(amount)")
@@ -104,7 +173,6 @@ export default function FinancePage() {
       .gte("check_in", yearStart)
       .lt("check_in", yearEnd);
 
-    // Masraflar
     const { data: expData } = await supabase
       .from("expenses")
       .select("*")
@@ -114,19 +182,19 @@ export default function FinancePage() {
 
     setExpenses((expData ?? []) as Expense[]);
 
-    // Aylık hesaplama
     const months = eachMonthOfInterval({
       start: new Date(selectedYear, 0, 1),
       end: new Date(selectedYear, 11, 31),
     });
 
-    const monthly: MonthlyData[] = months.map((m) => {
+    const monthly: MonthlyData[] = months.map((m, idx) => {
       const mStr = format(m, "yyyy-MM");
       const label = format(m, "MMM", { locale: tr });
 
-      // Gelir: o ayda başlayan rezervasyonların konaklama + harcamaları
-      const monthIncome = (reservations ?? [])
-        .filter((r: { check_in: string }) => r.check_in.startsWith(mStr))
+      const monthReservations = (reservations ?? [])
+        .filter((r: { check_in: string }) => r.check_in.startsWith(mStr));
+
+      const monthIncome = monthReservations
         .reduce((sum: number, r: { check_in: string; check_out: string; nightly_rate: number; charges: { amount: number }[] | null }) => {
           const nights = Math.ceil(
             (new Date(r.check_out).getTime() - new Date(r.check_in).getTime()) / 86400000
@@ -136,17 +204,18 @@ export default function FinancePage() {
           return sum + accommodation + charges;
         }, 0);
 
-      // Masraf: o aydaki masraflar
-      const monthExpense = (expData ?? [])
-        .filter((e: { date: string }) => e.date.startsWith(mStr))
-        .reduce((sum: number, e: { amount: number }) => sum + Number(e.amount), 0);
+      const monthExpenses = (expData ?? []).filter((e: { date: string }) => e.date.startsWith(mStr));
+      const monthExpense = monthExpenses.reduce((sum: number, e: { amount: number }) => sum + Number(e.amount), 0);
 
       return {
         month: mStr,
         label,
+        monthIndex: idx,
         income: monthIncome,
         expense: monthExpense,
         profit: monthIncome - monthExpense,
+        reservationCount: monthReservations.length,
+        expenseCount: monthExpenses.length,
       };
     });
 
@@ -154,39 +223,51 @@ export default function FinancePage() {
     setLoading(false);
   }, [selectedYear]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Masraf kategori dağılımı
+  // Filtrelenmiş expenses ve stats (ay seçiliyse o ay, değilse yıl)
+  const filteredExpenses = selectedMonth !== null
+    ? expenses.filter((e) => {
+        const d = new Date(e.date);
+        return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth;
+      })
+    : expenses;
+
+  const selectedMonthData = selectedMonth !== null ? monthlyData[selectedMonth] : null;
+
   const categoryBreakdown = Object.entries(
-    expenses.reduce<Record<string, number>>((acc, e) => {
+    filteredExpenses.reduce<Record<string, number>>((acc, e) => {
       acc[e.category] = (acc[e.category] ?? 0) + Number(e.amount);
       return acc;
     }, {})
-  ).map(([key, value]) => ({
-    name: expenseCategoryLabels[key] ?? key,
-    value,
-  }));
+  )
+    .map(([key, value]) => ({
+      key,
+      name: categoryConfig[key]?.label ?? key,
+      value,
+      hex: categoryConfig[key]?.hex ?? "#6b7280",
+    }))
+    .sort((a, b) => b.value - a.value);
 
-  // Toplamlar
-  const totalIncome = monthlyData.reduce((s, m) => s + m.income, 0);
-  const totalExpense = monthlyData.reduce((s, m) => s + m.expense, 0);
-  const totalProfit = totalIncome - totalExpense;
+  const displayIncome = selectedMonthData ? selectedMonthData.income : monthlyData.reduce((s, m) => s + m.income, 0);
+  const displayExpense = selectedMonthData ? selectedMonthData.expense : monthlyData.reduce((s, m) => s + m.expense, 0);
+  const displayProfit = displayIncome - displayExpense;
+  const profitMargin = displayIncome > 0 ? Math.round((displayProfit / displayIncome) * 100) : 0;
 
   const handleAddExpense = async () => {
-    if (!expDesc || !expAmount) return;
+    if (!expDesc || !expAmount || !expDate) return;
     setExpLoading(true);
     await supabase.from("expenses").insert({
       description: expDesc,
       amount: Number(expAmount),
       category: expCategory,
-      date: expDate,
+      date: format(expDate, "yyyy-MM-dd"),
     });
     toast.success("Masraf eklendi");
     setExpDesc("");
     setExpAmount("");
     setExpCategory("general");
+    setExpDate(new Date());
     setExpenseDialogOpen(false);
     setExpLoading(false);
     fetchData();
@@ -198,219 +279,470 @@ export default function FinancePage() {
     fetchData();
   };
 
+  const isCurrentYear = selectedYear === new Date().getFullYear();
+  const scopeLabel = selectedMonthData
+    ? format(new Date(selectedYear, selectedMonth!, 1), "MMMM yyyy", { locale: tr })
+    : `${selectedYear} yılı`;
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Finans</h1>
-          <p className="text-muted-foreground text-sm">Gelir, gider ve kar takibi</p>
+          <p className="text-muted-foreground text-sm mt-0.5">Gelir, gider ve kar takibi</p>
         </div>
-        <Button onClick={() => setExpenseDialogOpen(true)} variant="outline">
+        <Button
+          onClick={() => setExpenseDialogOpen(true)}
+          className="hover:brightness-90 active:scale-[0.98] transition-all shrink-0"
+        >
           <Plus className="h-4 w-4 mr-1.5" />
-          Masraf Ekle
+          <span className="hidden sm:inline">Masraf Ekle</span>
+          <span className="sm:hidden">Masraf</span>
         </Button>
       </div>
 
-      {/* Yıl Seçimi */}
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="icon" onClick={() => setSelectedYear((y) => y - 1)}>
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <span className="text-lg font-semibold w-16 text-center">{selectedYear}</span>
-        <Button variant="outline" size="icon" onClick={() => setSelectedYear((y) => y + 1)}>
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+      {/* Yıl Seçimi + Scope Göstergesi */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="inline-flex items-center gap-1 border rounded-xl p-1 bg-muted/30">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg"
+            onClick={() => setSelectedYear((y) => y - 1)}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div className="px-4 py-1 min-w-[70px] text-center">
+            <span className="text-sm font-semibold tabular-nums">{selectedYear}</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg"
+            onClick={() => setSelectedYear((y) => y + 1)}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          {!isCurrentYear && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 ml-1 text-xs"
+              onClick={() => setSelectedYear(new Date().getFullYear())}
+            >
+              Bu yıl
+            </Button>
+          )}
+        </div>
+
+        <div className="text-xs text-muted-foreground">
+          Görüntülenen: <span className="font-medium text-foreground capitalize">{scopeLabel}</span>
+        </div>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-20 text-muted-foreground">Yükleniyor...</div>
+        <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Yükleniyor...</div>
       ) : (
         <>
           {/* Özet Kartları */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-2xl border p-5">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                <TrendingUp className="h-4 w-4 text-emerald-500" />
-                Toplam Gelir
+            {/* Gelir */}
+            <div className="rounded-2xl border p-5 bg-gradient-to-br from-emerald-500/5 to-transparent">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                  <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+                  Gelir
+                </div>
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                  <ArrowUpRight className="h-4.5 w-4.5 text-emerald-500" strokeWidth={2.5} />
+                </div>
               </div>
-              <p className="text-2xl font-bold text-emerald-600">{totalIncome.toLocaleString("tr-TR")}₺</p>
+              <p className="text-[28px] leading-tight font-bold text-emerald-600 tabular-nums">
+                {displayIncome.toLocaleString("tr-TR")}
+                <span className="text-xl font-normal ml-0.5">₺</span>
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {selectedMonthData ? `${selectedMonthData.reservationCount} rezervasyon` : `${monthlyData.reduce((s, m) => s + m.reservationCount, 0)} rezervasyon`}
+              </p>
             </div>
-            <div className="rounded-2xl border p-5">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                <TrendingDown className="h-4 w-4 text-destructive" />
-                Toplam Gider
+
+            {/* Gider */}
+            <div className="rounded-2xl border p-5 bg-gradient-to-br from-rose-500/5 to-transparent">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                  <TrendingDown className="h-3.5 w-3.5 text-rose-500" />
+                  Gider
+                </div>
+                <div className="w-9 h-9 rounded-xl bg-rose-500/10 flex items-center justify-center">
+                  <ArrowDownRight className="h-4.5 w-4.5 text-rose-500" strokeWidth={2.5} />
+                </div>
               </div>
-              <p className="text-2xl font-bold text-destructive">{totalExpense.toLocaleString("tr-TR")}₺</p>
+              <p className="text-[28px] leading-tight font-bold text-rose-500 tabular-nums">
+                {displayExpense.toLocaleString("tr-TR")}
+                <span className="text-xl font-normal ml-0.5">₺</span>
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {filteredExpenses.length} masraf kaydı
+              </p>
             </div>
-            <div className="rounded-2xl border p-5">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                <Wallet className="h-4 w-4" />
-                Net Kar
+
+            {/* Net Kar */}
+            <div className={cn(
+              "rounded-2xl border p-5 bg-gradient-to-br to-transparent",
+              displayProfit >= 0 ? "from-emerald-500/5" : "from-rose-500/5"
+            )}>
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                  <Wallet className="h-3.5 w-3.5" />
+                  Net Kar
+                </div>
+                <div className={cn(
+                  "w-9 h-9 rounded-xl flex items-center justify-center",
+                  displayProfit >= 0 ? "bg-emerald-500/10" : "bg-rose-500/10"
+                )}>
+                  <Wallet className={cn(
+                    "h-4.5 w-4.5",
+                    displayProfit >= 0 ? "text-emerald-500" : "text-rose-500"
+                  )} strokeWidth={2.5} />
+                </div>
               </div>
-              <p className={cn("text-2xl font-bold", totalProfit >= 0 ? "text-emerald-600" : "text-destructive")}>
-                {totalProfit.toLocaleString("tr-TR")}₺
+              <p className={cn(
+                "text-[28px] leading-tight font-bold tabular-nums",
+                displayProfit >= 0 ? "text-emerald-600" : "text-rose-500"
+              )}>
+                {displayProfit.toLocaleString("tr-TR")}
+                <span className="text-xl font-normal ml-0.5">₺</span>
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                %{profitMargin} kar marjı
               </p>
             </div>
           </div>
 
-          {/* Aylık Gelir/Gider Grafiği */}
-          <Card>
-            <CardContent className="p-6">
-              <h3 className="text-sm font-semibold mb-4">Aylık Gelir / Gider</h3>
-              <div className="h-[300px] min-w-0 min-h-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={monthlyData} barGap={4}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                    <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-                    <Tooltip
-                      formatter={(value) => `${Number(value).toLocaleString("tr-TR")}₺`}
-                      contentStyle={{
-                        borderRadius: "12px",
-                        border: "1px solid hsl(var(--border))",
-                        background: "hsl(var(--card))",
-                        fontSize: "13px",
-                      }}
-                    />
-                    <Bar dataKey="income" name="Gelir" fill="#10b981" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="expense" name="Gider" fill="#ef4444" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+          {/* Aylık Grafik + Ay Seçici */}
+          <div className="rounded-2xl border p-5">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-sm font-semibold">Aylık Dağılım</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {selectedMonth !== null ? "Filtreyi kaldırmak için aya tekrar tıklayın" : "Detaylar için aya tıklayın"}
+                </p>
               </div>
-            </CardContent>
-          </Card>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+                  <span className="text-muted-foreground">Gelir</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <div className="w-2.5 h-2.5 rounded-sm bg-rose-500" />
+                  <span className="text-muted-foreground">Gider</span>
+                </div>
+              </div>
+            </div>
 
-          {/* Alt kısım: Masraf Dağılımı + Son Masraflar */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Masraf Kategori Dağılımı */}
-            <Card>
-              <CardContent className="p-6">
-                <h3 className="text-sm font-semibold mb-4">Gider Dağılımı</h3>
-                {categoryBreakdown.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">Henüz masraf yok</p>
-                ) : (
-                  <div className="flex items-center gap-6">
-                    <div className="w-[160px] h-[160px] shrink-0 min-w-0 min-h-0">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={categoryBreakdown}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={45}
-                            outerRadius={75}
-                            paddingAngle={2}
-                            dataKey="value"
-                          >
-                            {categoryBreakdown.map((_, i) => (
-                              <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="space-y-2 flex-1">
-                      {categoryBreakdown.map((item, i) => (
-                        <div key={item.name} className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
-                            <span>{item.name}</span>
-                          </div>
-                          <span className="font-medium tabular-nums">{item.value.toLocaleString("tr-TR")}₺</span>
-                        </div>
-                      ))}
+            <div className="h-[280px] min-w-0 min-h-0 mb-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={monthlyData}
+                  barGap={2}
+                  barCategoryGap="22%"
+                  margin={{ top: 10, right: 8, left: -16, bottom: 0 }}
+                  onClick={(e) => {
+                    if (e?.activeTooltipIndex !== undefined && e.activeTooltipIndex !== null) {
+                      const idx = e.activeTooltipIndex as number;
+                      setSelectedMonth((prev) => (prev === idx ? null : idx));
+                    }
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(127,127,127,0.15)" />
+                  <XAxis
+                    dataKey="label"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    dy={8}
+                    tick={{ fill: "currentColor", opacity: 0.6 }}
+                  />
+                  <YAxis
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) => (v === 0 ? "0" : `${(v / 1000).toFixed(0)}k`)}
+                    tick={{ fill: "currentColor", opacity: 0.5 }}
+                    width={48}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "rgba(127,127,127,0.08)", radius: 8 }}
+                    content={<ChartTooltip yearLabel={selectedYear} />}
+                  />
+                  <Bar dataKey="income" name="Gelir" radius={[6, 6, 0, 0]} maxBarSize={28}>
+                    {monthlyData.map((_, idx) => (
+                      <Cell
+                        key={`inc-${idx}`}
+                        fill={selectedMonth !== null && selectedMonth !== idx ? "#10b98133" : "#10b981"}
+                        cursor="pointer"
+                      />
+                    ))}
+                  </Bar>
+                  <Bar dataKey="expense" name="Gider" radius={[6, 6, 0, 0]} maxBarSize={28}>
+                    {monthlyData.map((_, idx) => (
+                      <Cell
+                        key={`exp-${idx}`}
+                        fill={selectedMonth !== null && selectedMonth !== idx ? "#f43f5e33" : "#f43f5e"}
+                        cursor="pointer"
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Ay pill'leri */}
+            <div className="flex items-center flex-wrap gap-1.5 pt-4 border-t">
+              <button
+                onClick={() => setSelectedMonth(null)}
+                className={cn(
+                  "px-2.5 py-1 rounded-full text-xs font-medium transition-all",
+                  selectedMonth === null
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                Tüm Yıl
+              </button>
+              {monthlyData.map((m, idx) => {
+                const isActive = selectedMonth === idx;
+                const hasData = m.income > 0 || m.expense > 0;
+                return (
+                  <button
+                    key={m.month}
+                    onClick={() => setSelectedMonth((prev) => (prev === idx ? null : idx))}
+                    className={cn(
+                      "px-2.5 py-1 rounded-full text-xs font-medium transition-all capitalize",
+                      isActive
+                        ? "bg-foreground text-background"
+                        : hasData
+                        ? "text-foreground hover:bg-muted border border-border"
+                        : "text-muted-foreground/50 hover:bg-muted border border-dashed border-border"
+                    )}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Alt: Gider Dağılımı + Masraf Listesi */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            {/* Gider Dağılımı */}
+            <div className="rounded-2xl border p-5 lg:col-span-2">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                  <PieChartIcon className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">Gider Dağılımı</h3>
+                </div>
+                {selectedMonthData && (
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    {selectedMonthData.label}
+                  </span>
+                )}
+              </div>
+              {categoryBreakdown.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                    <PieChartIcon className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium">Henüz gider yok</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedMonthData ? "Bu ay için" : "İlk masrafı ekleyin"}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="h-[180px] min-w-0 min-h-0 relative">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={categoryBreakdown}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={55}
+                          outerRadius={85}
+                          paddingAngle={2}
+                          dataKey="value"
+                        >
+                          {categoryBreakdown.map((item) => (
+                            <Cell key={item.key} fill={item.hex} />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<PieTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Toplam</p>
+                      <p className="text-base font-bold tabular-nums">
+                        {displayExpense.toLocaleString("tr-TR")}₺
+                      </p>
                     </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Son Masraflar Listesi */}
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold">Son Masraflar</h3>
-                  <Button size="sm" variant="ghost" onClick={() => setExpenseDialogOpen(true)}>
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Ekle
-                  </Button>
+                  <Separator />
+                  <div className="space-y-2">
+                    {categoryBreakdown.map((item) => {
+                      const pct = displayExpense > 0 ? Math.round((item.value / displayExpense) * 100) : 0;
+                      return (
+                        <div key={item.key} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.hex }} />
+                            <span className="truncate">{item.name}</span>
+                            <span className="text-[10px] text-muted-foreground shrink-0">%{pct}</span>
+                          </div>
+                          <span className="font-medium tabular-nums text-xs">
+                            {item.value.toLocaleString("tr-TR")}₺
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                {expenses.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">Henüz masraf yok</p>
-                ) : (
-                  <div className="space-y-1 max-h-[250px] overflow-y-auto">
-                    {expenses.slice(0, 20).map((exp) => (
-                      <div key={exp.id} className="flex items-center justify-between py-2.5 group">
-                        <div className="min-w-0">
+              )}
+            </div>
+
+            {/* Masraf Listesi */}
+            <div className="rounded-2xl border overflow-hidden lg:col-span-3">
+              <div className="flex items-center justify-between p-5 border-b">
+                <div className="flex items-center gap-2">
+                  <Receipt className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">
+                    {selectedMonthData ? "Masraflar" : "Son Masraflar"}
+                  </h3>
+                  {filteredExpenses.length > 0 && (
+                    <span className="text-xs text-muted-foreground">({filteredExpenses.length})</span>
+                  )}
+                  {selectedMonthData && (
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide ml-auto mr-2">
+                      {selectedMonthData.label}
+                    </span>
+                  )}
+                </div>
+                <Button size="sm" variant="outline" onClick={() => setExpenseDialogOpen(true)} className="h-8">
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Ekle
+                </Button>
+              </div>
+              {filteredExpenses.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center px-6">
+                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                    <Receipt className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium">
+                    {selectedMonthData ? "Bu ayda masraf yok" : "Henüz masraf yok"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">Masraf eklemek için butona tıklayın</p>
+                </div>
+              ) : (
+                <div className="divide-y max-h-[400px] overflow-y-auto">
+                  {filteredExpenses.map((exp) => {
+                    const cat = categoryConfig[exp.category] ?? categoryConfig.other;
+                    return (
+                      <div key={exp.id} className="flex items-center gap-3 px-5 py-3 group hover:bg-muted/40 transition-colors">
+                        <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center shrink-0", cat.bg)}>
+                          <div className={cat.color}>{cat.icon}</div>
+                        </div>
+                        <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{exp.description}</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {expenseCategoryLabels[exp.category] ?? exp.category} · {format(new Date(exp.date + "T00:00:00"), "d MMM yyyy", { locale: tr })}
-                          </p>
+                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                            <span className="flex items-center gap-1">
+                              <Tag className="h-3 w-3" />
+                              {cat.label}
+                            </span>
+                            <span>·</span>
+                            <span className="flex items-center gap-1">
+                              <CalendarDays className="h-3 w-3" />
+                              {format(new Date(exp.date + "T00:00:00"), "d MMM yyyy", { locale: tr })}
+                            </span>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-sm font-semibold text-destructive tabular-nums">
+                          <span className="text-sm font-semibold text-rose-500 tabular-nums">
                             -{Number(exp.amount).toLocaleString("tr-TR")}₺
                           </span>
                           <button
                             onClick={() => handleDeleteExpense(exp.id)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive/80 p-1"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10 p-1.5 rounded-lg"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}
 
       {/* Masraf Ekleme Dialog */}
       <Dialog open={expenseDialogOpen} onOpenChange={setExpenseDialogOpen}>
-        <DialogContent className="sm:max-w-[420px] p-0 gap-0 overflow-hidden">
+        <DialogContent className="sm:max-w-[480px] p-0 gap-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-4">
             <DialogTitle>Masraf Ekle</DialogTitle>
           </DialogHeader>
-          <div className="px-6 pb-6 space-y-4">
-            <Input
-              value={expDesc}
-              onChange={(e) => setExpDesc(e.target.value)}
-              placeholder="Açıklama *"
-              className="h-10"
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                type="number"
-                value={expAmount}
-                onChange={(e) => setExpAmount(e.target.value)}
-                placeholder="Tutar (₺) *"
-                className="h-10"
-                min="0"
-              />
-              <Select value={expCategory} onValueChange={(v) => v && setExpCategory(v)}>
-                <SelectTrigger className="h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="staff">Personel</SelectItem>
-                  <SelectItem value="utilities">Faturalar</SelectItem>
-                  <SelectItem value="maintenance">Bakım/Onarım</SelectItem>
-                  <SelectItem value="supplies">Malzeme</SelectItem>
-                  <SelectItem value="food">Gıda</SelectItem>
-                  <SelectItem value="other">Diğer</SelectItem>
-                  <SelectItem value="general">Genel</SelectItem>
-                </SelectContent>
-              </Select>
+          <div className="px-6 pb-6 space-y-5">
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Tag className="h-4 w-4" />
+                Kategori
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {Object.entries(categoryConfig).map(([key, cfg]) => {
+                  const active = expCategory === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setExpCategory(key)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-2 rounded-xl border text-xs transition-all",
+                        active
+                          ? "border-foreground bg-foreground/5 font-medium"
+                          : "border-border hover:border-foreground/40"
+                      )}
+                    >
+                      <div className={cfg.color}>{cfg.icon}</div>
+                      <span className="truncate">{cfg.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <Input
-              type="date"
-              value={expDate}
-              onChange={(e) => setExpDate(e.target.value)}
-              className="h-10"
-            />
+
+            <Separator />
+
+            <div className="space-y-3">
+              <Input
+                value={expDesc}
+                onChange={(e) => setExpDesc(e.target.value)}
+                placeholder="Açıklama *"
+                className="h-10"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  type="number"
+                  value={expAmount}
+                  onChange={(e) => setExpAmount(e.target.value)}
+                  placeholder="Tutar (₺) *"
+                  className="h-10"
+                  min="0"
+                />
+                <DatePicker
+                  value={expDate}
+                  onChange={setExpDate}
+                  placeholder="Tarih seçin"
+                />
+              </div>
+            </div>
           </div>
           <div className="flex justify-end gap-3 px-6 py-4 border-t bg-muted/30">
             <Button variant="outline" onClick={() => setExpenseDialogOpen(false)}>İptal</Button>
@@ -419,7 +751,7 @@ export default function FinancePage() {
               disabled={expLoading || !expDesc || !expAmount}
               className="hover:brightness-90 active:scale-[0.98] transition-all"
             >
-              {expLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Kaydet"}
+              {expLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Masraf Kaydet"}
             </Button>
           </div>
         </DialogContent>

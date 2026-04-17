@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval } from "date-fns";
+import { format, eachMonthOfInterval } from "date-fns";
 import { tr } from "date-fns/locale";
 import Link from "next/link";
 import {
@@ -12,6 +12,9 @@ import {
   Wallet,
   TrendingUp,
   ArrowRight,
+  Phone,
+  Users,
+  Activity,
 } from "lucide-react";
 import {
   BarChart,
@@ -21,10 +24,9 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Cell,
 } from "recharts";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/lib/supabase";
 import { getBungalows, calculateBalance } from "@/lib/queries";
 import { ReservationDetailDialog } from "@/components/reservation-detail-dialog";
@@ -52,18 +54,38 @@ interface ReservationRow {
   payments?: { amount: number }[];
 }
 
+function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { name?: string; value?: number; color?: string }[]; label?: string }) {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div className="rounded-xl border bg-popover text-popover-foreground shadow-lg px-3 py-2 text-xs">
+      {label && <p className="font-semibold mb-1.5 capitalize">{label}</p>}
+      {payload.map((p, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: p.color }} />
+          <span className="text-muted-foreground">{p.name}:</span>
+          <span className="font-medium tabular-nums">{Number(p.value ?? 0).toLocaleString("tr-TR")}₺</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function getInitials(name: string) {
+  return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+}
+
 export default function DashboardPage() {
   const [bungalows, setBungalows] = useState<Bungalow[]>([]);
   const [allReservations, setAllReservations] = useState<ReservationRow[]>([]);
-  const [monthlyIncome, setMonthlyIncome] = useState<{ label: string; income: number }[]>([]);
+  const [monthlyIncome, setMonthlyIncome] = useState<{ label: string; income: number; current: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Detail dialog
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedRes, setSelectedRes] = useState<ReservationRow | null>(null);
 
   const today = format(new Date(), "yyyy-MM-dd");
   const currentYear = new Date().getFullYear();
+  const currentMonthStr = format(new Date(), "yyyy-MM");
 
   const fetchData = async () => {
     setLoading(true);
@@ -78,7 +100,7 @@ export default function DashboardPage() {
     setBungalows(b);
     setAllReservations((reservations ?? []) as ReservationRow[]);
 
-    // Aylık gelir (son 6 ay)
+    // Son 6 ay
     const months = eachMonthOfInterval({
       start: new Date(currentYear, new Date().getMonth() - 5, 1),
       end: new Date(currentYear, new Date().getMonth(), 28),
@@ -93,7 +115,7 @@ export default function DashboardPage() {
           const ch = (r.charges ?? []).reduce((s: number, c: { amount: number }) => s + Number(c.amount), 0);
           return sum + acc + ch;
         }, 0);
-      return { label: format(m, "MMM", { locale: tr }), income };
+      return { label: format(m, "MMM", { locale: tr }), income, current: mStr === currentMonthStr };
     });
     setMonthlyIncome(monthly);
     setLoading(false);
@@ -113,7 +135,12 @@ export default function DashboardPage() {
     .reduce((s, r) => s + calculateBalance(r), 0);
   const occupancyRate = Math.round((occupiedCount / 9) * 100);
 
-  // Yaklaşan rezervasyonlar (gelecek 7 gün)
+  const thisMonthIncome = monthlyIncome[monthlyIncome.length - 1]?.income ?? 0;
+  const lastMonthIncome = monthlyIncome[monthlyIncome.length - 2]?.income ?? 0;
+  const incomeTrend = lastMonthIncome > 0
+    ? Math.round(((thisMonthIncome - lastMonthIncome) / lastMonthIncome) * 100)
+    : 0;
+
   const upcoming = allReservations
     .filter((r) => r.check_in > today && r.check_in <= format(new Date(Date.now() + 7 * 86400000), "yyyy-MM-dd"))
     .sort((a, b) => a.check_in.localeCompare(b.check_in))
@@ -121,7 +148,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-muted-foreground">Yükleniyor...</div>
+      <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Yükleniyor...</div>
     );
   }
 
@@ -130,68 +157,147 @@ export default function DashboardPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-muted-foreground text-sm mt-0.5 capitalize">
           {format(new Date(), "d MMMM yyyy, EEEE", { locale: tr })}
         </p>
       </div>
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-2xl border p-5">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            <BedDouble className="h-4 w-4" />
-            Doluluk
-          </div>
-          <p className="text-2xl font-bold">{occupiedCount}<span className="text-muted-foreground text-lg font-normal">/9</span></p>
-          <p className="text-xs text-muted-foreground mt-1">%{occupancyRate} dolu</p>
-        </div>
-        <div className="rounded-2xl border p-5">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            <CalendarDays className="h-4 w-4" />
-            Bugün
-          </div>
-          <div className="flex items-center gap-4 mt-1">
-            <div>
-              <p className="text-xl font-bold text-emerald-600">{todayCheckIns.length}</p>
-              <p className="text-[11px] text-muted-foreground">giriş</p>
+        {/* Doluluk */}
+        <div className="rounded-2xl border p-5 bg-gradient-to-br from-blue-500/5 to-transparent">
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+              <BedDouble className="h-3.5 w-3.5" />
+              Doluluk
             </div>
-            <div>
-              <p className="text-xl font-bold text-orange-500">{todayCheckOuts.length}</p>
-              <p className="text-[11px] text-muted-foreground">çıkış</p>
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center">
+              <BedDouble className="h-4 w-4 text-blue-500" strokeWidth={2.5} />
             </div>
           </div>
-        </div>
-        <div className="rounded-2xl border p-5">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            <Wallet className="h-4 w-4" />
-            Açık Bakiye
-          </div>
-          <p className={cn("text-2xl font-bold", totalBalance > 0 ? "text-destructive" : "text-emerald-600")}>
-            {totalBalance.toLocaleString("tr-TR")}₺
+          <p className="text-[28px] leading-tight font-bold tabular-nums">
+            {occupiedCount}
+            <span className="text-xl text-muted-foreground font-normal">/9</span>
           </p>
-          <p className="text-xs text-muted-foreground mt-1">aktif rezervasyonlar</p>
-        </div>
-        <div className="rounded-2xl border p-5">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            <TrendingUp className="h-4 w-4" />
-            Bu Ay Gelir
+          {/* Mini bar */}
+          <div className="flex gap-0.5 mt-2">
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "flex-1 h-1.5 rounded-full",
+                  i < occupiedCount ? "bg-blue-500" : "bg-muted"
+                )}
+              />
+            ))}
           </div>
-          <p className="text-2xl font-bold text-emerald-600">
-            {(monthlyIncome[monthlyIncome.length - 1]?.income ?? 0).toLocaleString("tr-TR")}₺
+          <p className="text-[11px] text-muted-foreground mt-2">%{occupancyRate} dolu</p>
+        </div>
+
+        {/* Bugün */}
+        <div className="rounded-2xl border p-5 bg-gradient-to-br from-violet-500/5 to-transparent">
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+              <Activity className="h-3.5 w-3.5" />
+              Bugün
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-violet-500/10 flex items-center justify-center">
+              <Activity className="h-4 w-4 text-violet-500" strokeWidth={2.5} />
+            </div>
+          </div>
+          <div className="flex items-end gap-4">
+            <div>
+              <p className="text-[28px] leading-tight font-bold text-emerald-600 tabular-nums">
+                {todayCheckIns.length}
+              </p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">giriş</p>
+            </div>
+            <div className="w-px h-10 bg-border" />
+            <div>
+              <p className="text-[28px] leading-tight font-bold text-orange-500 tabular-nums">
+                {todayCheckOuts.length}
+              </p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">çıkış</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Açık Bakiye */}
+        <div className={cn(
+          "rounded-2xl border p-5 bg-gradient-to-br to-transparent",
+          totalBalance > 0 ? "from-rose-500/5" : "from-emerald-500/5"
+        )}>
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+              <Wallet className="h-3.5 w-3.5" />
+              Açık Bakiye
+            </div>
+            <div className={cn(
+              "w-9 h-9 rounded-xl flex items-center justify-center",
+              totalBalance > 0 ? "bg-rose-500/10" : "bg-emerald-500/10"
+            )}>
+              <Wallet className={cn(
+                "h-4 w-4",
+                totalBalance > 0 ? "text-rose-500" : "text-emerald-500"
+              )} strokeWidth={2.5} />
+            </div>
+          </div>
+          <p className={cn(
+            "text-[28px] leading-tight font-bold tabular-nums",
+            totalBalance > 0 ? "text-rose-500" : "text-emerald-600"
+          )}>
+            {totalBalance.toLocaleString("tr-TR")}
+            <span className="text-xl font-normal ml-0.5">₺</span>
           </p>
-          <p className="text-xs text-muted-foreground mt-1">{format(new Date(), "MMMM", { locale: tr })}</p>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            {totalBalance > 0 ? "tahsil edilecek" : "tüm ödemeler tamam"}
+          </p>
+        </div>
+
+        {/* Bu Ay Gelir */}
+        <div className="rounded-2xl border p-5 bg-gradient-to-br from-emerald-500/5 to-transparent">
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+              <TrendingUp className="h-3.5 w-3.5" />
+              Bu Ay
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <TrendingUp className="h-4 w-4 text-emerald-500" strokeWidth={2.5} />
+            </div>
+          </div>
+          <p className="text-[28px] leading-tight font-bold text-emerald-600 tabular-nums">
+            {thisMonthIncome.toLocaleString("tr-TR")}
+            <span className="text-xl font-normal ml-0.5">₺</span>
+          </p>
+          <div className="flex items-center gap-1.5 mt-1">
+            {lastMonthIncome > 0 && (
+              <span className={cn(
+                "inline-flex items-center gap-0.5 text-[11px] font-medium",
+                incomeTrend > 0 ? "text-emerald-500" : incomeTrend < 0 ? "text-rose-500" : "text-muted-foreground"
+              )}>
+                {incomeTrend > 0 ? "↑" : incomeTrend < 0 ? "↓" : "—"} %{Math.abs(incomeTrend)}
+              </span>
+            )}
+            <span className="text-[11px] text-muted-foreground">geçen aya göre</span>
+          </div>
         </div>
       </div>
 
-      {/* Middle Row: Bungalov durumları + Gelir grafiği */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Bungalov Mini Grid */}
-        <Card>
-          <CardContent className="p-5">
+      {/* 2-Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* LEFT: Bungalovlar + Grafik */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Bungalov Grid */}
+          <div className="rounded-2xl border p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold">Bungalovlar</h3>
+              <div>
+                <h3 className="text-sm font-semibold">Bungalov Durumu</h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {occupiedCount} dolu · {9 - occupiedCount} müsait
+                </p>
+              </div>
               <Link href="/calendar">
-                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground h-8">
                   Takvim <ArrowRight className="h-3 w-3 ml-1" />
                 </Button>
               </Link>
@@ -206,12 +312,19 @@ export default function DashboardPage() {
                     onClick={() => { if (active) { setSelectedRes(active); setDetailOpen(true); } }}
                     className={cn(
                       "rounded-xl border p-3 transition-all",
-                      isOccupied ? "cursor-pointer hover:bg-muted/40" : ""
+                      isOccupied
+                        ? "cursor-pointer hover:bg-muted/40 hover:border-foreground/20"
+                        : "bg-emerald-50/40 dark:bg-emerald-950/10 border-emerald-500/20"
                     )}
                   >
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <div className={cn("w-2 h-2 rounded-full", BUNGALOW_DOT_COLORS[b.name])} />
-                      <span className="text-xs font-medium truncate">{b.name}</span>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className={cn("w-2 h-2 rounded-full shrink-0", BUNGALOW_DOT_COLORS[b.name])} />
+                        <span className="text-xs font-semibold truncate">{b.name}</span>
+                      </div>
+                      {!isOccupied && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      )}
                     </div>
                     {isOccupied ? (
                       <div>
@@ -221,124 +334,179 @@ export default function DashboardPage() {
                         </p>
                       </div>
                     ) : (
-                      <p className="text-[11px] text-emerald-500 font-medium">Müsait</p>
+                      <p className="text-[11px] text-emerald-600 dark:text-emerald-500 font-medium">Müsait</p>
                     )}
                   </div>
                 );
               })}
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* Gelir Grafiği */}
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold">Son 6 Ay Gelir</h3>
+          {/* Gelir Grafiği */}
+          <div className="rounded-2xl border p-5">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-sm font-semibold">Son 6 Ay Gelir</h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Aylık konaklama + harcama gelirleri
+                </p>
+              </div>
               <Link href="/finance">
-                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground h-8">
                   Finans <ArrowRight className="h-3 w-3 ml-1" />
                 </Button>
               </Link>
             </div>
-            <div className="h-[200px] min-w-0 min-h-0">
+            <div className="h-[220px] min-w-0 min-h-0">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyIncome}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                  <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                <BarChart
+                  data={monthlyIncome}
+                  margin={{ top: 10, right: 8, left: -16, bottom: 0 }}
+                  barCategoryGap="30%"
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(127,127,127,0.15)" />
+                  <XAxis dataKey="label" fontSize={11} tickLine={false} axisLine={false} tick={{ fill: "currentColor", opacity: 0.6 }} dy={6} />
+                  <YAxis fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => (v === 0 ? "0" : `${(v / 1000).toFixed(0)}k`)} tick={{ fill: "currentColor", opacity: 0.5 }} width={48} />
                   <Tooltip
-                    formatter={(value) => `${Number(value).toLocaleString("tr-TR")}₺`}
-                    contentStyle={{ borderRadius: "12px", border: "1px solid hsl(var(--border))", background: "hsl(var(--card))", fontSize: "13px" }}
+                    cursor={{ fill: "rgba(127,127,127,0.08)", radius: 8 }}
+                    content={<ChartTooltip />}
                   />
-                  <Bar dataKey="income" name="Gelir" fill="#10b981" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="income" name="Gelir" radius={[6, 6, 0, 0]} maxBarSize={40}>
+                    {monthlyIncome.map((m, idx) => (
+                      <Cell key={idx} fill={m.current ? "#10b981" : "#10b98180"} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </div>
 
-      {/* Bottom Row: Bugün giriş/çıkış + Yaklaşan */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Bugünkü Giriş/Çıkışlar */}
-        <Card>
-          <CardContent className="p-5">
-            <h3 className="text-sm font-semibold mb-4">Bugün</h3>
+        {/* RIGHT: Bugün + Yaklaşan */}
+        <div className="space-y-4">
+          {/* Bugün */}
+          <div className="rounded-2xl border overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b">
+              <h3 className="text-sm font-semibold">Bugün</h3>
+              <span className="text-[11px] text-muted-foreground">
+                {todayCheckIns.length + todayCheckOuts.length} hareket
+              </span>
+            </div>
             {todayCheckIns.length === 0 && todayCheckOuts.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">Bugün giriş veya çıkış yok</p>
+              <div className="flex flex-col items-center justify-center py-10 text-center px-6">
+                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mb-2">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium">Bugün hareket yok</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Giriş/çıkış bulunmuyor</p>
+              </div>
             ) : (
-              <div className="space-y-2">
-                {todayCheckIns.map((r) => (
-                  <div
-                    key={r.id}
-                    onClick={() => { setSelectedRes(r); setDetailOpen(true); }}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-950/50 transition-colors"
-                  >
-                    <LogIn className="h-4 w-4 text-emerald-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{r.guest?.full_name}</p>
-                      <p className="text-[11px] text-muted-foreground">{r.bungalow?.name}</p>
+              <div className="divide-y">
+                {todayCheckIns.map((r) => {
+                  const initials = getInitials(r.guest?.full_name ?? "?");
+                  return (
+                    <div
+                      key={r.id}
+                      onClick={() => { setSelectedRes(r); setDetailOpen(true); }}
+                      className="flex items-center gap-3 p-4 cursor-pointer hover:bg-muted/40 transition-colors"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0 relative">
+                        <span className="text-[11px] font-semibold text-emerald-600">{initials}</span>
+                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-background flex items-center justify-center">
+                          <LogIn className="h-2 w-2 text-white" strokeWidth={3} />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{r.guest?.full_name}</p>
+                        <p className="text-[11px] text-muted-foreground">{r.bungalow?.name} · {r.guest?.phone}</p>
+                      </div>
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600 shrink-0">Giriş</span>
                     </div>
-                    <span className="text-[11px] font-medium text-emerald-600">Giriş</span>
-                  </div>
-                ))}
-                {todayCheckOuts.map((r) => (
-                  <div
-                    key={r.id}
-                    onClick={() => { setSelectedRes(r); setDetailOpen(true); }}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-950/50 transition-colors"
-                  >
-                    <LogOut className="h-4 w-4 text-orange-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{r.guest?.full_name}</p>
-                      <p className="text-[11px] text-muted-foreground">{r.bungalow?.name}</p>
+                  );
+                })}
+                {todayCheckOuts.map((r) => {
+                  const initials = getInitials(r.guest?.full_name ?? "?");
+                  return (
+                    <div
+                      key={r.id}
+                      onClick={() => { setSelectedRes(r); setDetailOpen(true); }}
+                      className="flex items-center gap-3 p-4 cursor-pointer hover:bg-muted/40 transition-colors"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-orange-500/10 flex items-center justify-center shrink-0 relative">
+                        <span className="text-[11px] font-semibold text-orange-600">{initials}</span>
+                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-orange-500 border-2 border-background flex items-center justify-center">
+                          <LogOut className="h-2 w-2 text-white" strokeWidth={3} />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{r.guest?.full_name}</p>
+                        <p className="text-[11px] text-muted-foreground">{r.bungalow?.name} · {r.guest?.phone}</p>
+                      </div>
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-600 shrink-0">Çıkış</span>
                     </div>
-                    <span className="text-[11px] font-medium text-orange-600">Çıkış</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* Yaklaşan Rezervasyonlar */}
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold">Yaklaşan (7 gün)</h3>
+          {/* Yaklaşan */}
+          <div className="rounded-2xl border overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b">
+              <div>
+                <h3 className="text-sm font-semibold">Yaklaşan</h3>
+                <p className="text-[10px] text-muted-foreground">gelecek 7 gün</p>
+              </div>
               <Link href="/reservations">
-                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground h-8">
                   Tümü <ArrowRight className="h-3 w-3 ml-1" />
                 </Button>
               </Link>
             </div>
             {upcoming.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">Yaklaşan rezervasyon yok</p>
+              <div className="flex flex-col items-center justify-center py-10 text-center px-6">
+                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mb-2">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium">Yaklaşan yok</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">7 gün içinde rezervasyon yok</p>
+              </div>
             ) : (
-              <div className="space-y-2">
-                {upcoming.map((r) => (
-                  <div
-                    key={r.id}
-                    onClick={() => { setSelectedRes(r); setDetailOpen(true); }}
-                    className="flex items-center justify-between p-3 rounded-lg bg-muted/40 cursor-pointer hover:bg-muted/60 transition-colors"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={cn("w-2 h-2 rounded-full shrink-0", BUNGALOW_DOT_COLORS[r.bungalow?.name ?? ""])} />
-                      <div className="min-w-0">
+              <div className="divide-y">
+                {upcoming.map((r) => {
+                  const initials = getInitials(r.guest?.full_name ?? "?");
+                  const daysUntil = Math.ceil((new Date(r.check_in + "T00:00:00").getTime() - new Date().getTime()) / 86400000);
+                  return (
+                    <div
+                      key={r.id}
+                      onClick={() => { setSelectedRes(r); setDetailOpen(true); }}
+                      className="flex items-center gap-3 p-4 cursor-pointer hover:bg-muted/40 transition-colors"
+                    >
+                      <div className="relative shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-foreground/[0.06] dark:bg-foreground/10 flex items-center justify-center">
+                          <span className="text-[11px] font-semibold text-foreground/70">{initials}</span>
+                        </div>
+                        <div className={cn("absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background", BUNGALOW_DOT_COLORS[r.bungalow?.name ?? ""])} />
+                      </div>
+                      <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{r.guest?.full_name}</p>
-                        <p className="text-[11px] text-muted-foreground">{r.bungalow?.name}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{r.bungalow?.name}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-semibold">
+                          {format(new Date(r.check_in + "T00:00:00"), "d MMM", { locale: tr })}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {daysUntil === 0 ? "bugün" : daysUntil === 1 ? "yarın" : `${daysUntil} gün`}
+                        </p>
                       </div>
                     </div>
-                    <span className="text-xs text-muted-foreground shrink-0">
-                      {format(new Date(r.check_in + "T00:00:00"), "d MMM", { locale: tr })}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       {/* Detail Dialog */}
